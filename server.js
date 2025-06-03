@@ -3,11 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import { WebSocketServer, WebSocket } from 'ws';
+import { createServer } from 'http';
 
 dotenv.config();
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -340,44 +341,92 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
   }
 });
 
-// ========== WEBSOCKET SERVER ==========
-const wss = new WebSocketServer({ port: 8081 });
-
-wss.on('connection', (ws) => {
-  // Add client to hub
-  dataHub.addClient(ws);
+// ========== SERVER SETUP ==========
+if (process.env.RAILWAY_ENVIRONMENT) {
+  // Production on Railway: HTTP and WebSocket on same port
+  const server = createServer(app);
   
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
-      
-      if (data.type === 'subscribe') {
-        // Update hub subscriptions based on client request
-        dataHub.updateSubscriptions(data.symbols);
+  // Create WebSocket server attached to HTTP server
+  const wss = new WebSocketServer({ server });
+  
+  wss.on('connection', (ws) => {
+    // Add client to hub
+    dataHub.addClient(ws);
+    
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message);
         
-        // Send acknowledgment
-        ws.send(JSON.stringify({
-          type: 'subscribed',
-          symbols: data.symbols
-        }));
+        if (data.type === 'subscribe') {
+          // Update hub subscriptions based on client request
+          dataHub.updateSubscriptions(data.symbols);
+          
+          // Send acknowledgment
+          ws.send(JSON.stringify({
+            type: 'subscribed',
+            symbols: data.symbols
+          }));
+        }
+      } catch (error) {
+        console.error('Error processing client message:', error);
       }
-    } catch (error) {
-      console.error('Error processing client message:', error);
-    }
+    });
+    
+    ws.on('close', () => {
+      // Remove client from hub
+      dataHub.removeClient(ws);
+    });
+    
+    ws.on('error', (error) => {
+      console.error('Client WebSocket error:', error);
+    });
   });
   
-  ws.on('close', () => {
-    // Remove client from hub
-    dataHub.removeClient(ws);
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT} with integrated WebSocket support`);
+    console.log('Market Data Hub initialized with single Alpaca connection');
+  });
+} else {
+  // Development: Separate ports for HTTP and WebSocket
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
   
-  ws.on('error', (error) => {
-    console.error('Client WebSocket error:', error);
+  const wss = new WebSocketServer({ port: 8081 });
+  
+  wss.on('connection', (ws) => {
+    // Add client to hub
+    dataHub.addClient(ws);
+    
+    ws.on('message', (message) => {
+      try {
+        const data = JSON.parse(message);
+        
+        if (data.type === 'subscribe') {
+          // Update hub subscriptions based on client request
+          dataHub.updateSubscriptions(data.symbols);
+          
+          // Send acknowledgment
+          ws.send(JSON.stringify({
+            type: 'subscribed',
+            symbols: data.symbols
+          }));
+        }
+      } catch (error) {
+        console.error('Error processing client message:', error);
+      }
+    });
+    
+    ws.on('close', () => {
+      // Remove client from hub
+      dataHub.removeClient(ws);
+    });
+    
+    ws.on('error', (error) => {
+      console.error('Client WebSocket error:', error);
+    });
   });
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  
   console.log(`WebSocket running on port 8081`);
   console.log('Market Data Hub initialized with single Alpaca connection');
-});
+}

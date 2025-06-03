@@ -16,8 +16,8 @@ export const STOCK_GROUPS = {
       name: 'Tech Small Caps',
       description: 'Small cap technology companies with growth potential',
       tickers: [
-        'WRLD', 'HOV', 'PLTR', 'NVTS', 'BBAI', 'QUBT', 'APLD', 
-        'WULF', 'CIFR', 'AAOI', 'LAES', 'KC', 'PLAB'
+        'PLTR', 'NVTS', 'BBAI', 'QUBT', 'APLD', 
+        'WULF', 'CIFR', 'AAOI', 'KC', 'PLAB'
       ]
     },
     biotech: {
@@ -26,7 +26,7 @@ export const STOCK_GROUPS = {
       description: 'Biotechnology and pharmaceutical companies',
       tickers: [
         'BIIB', 'ILMN', 'AMGN', 'VRTX', 'REGN', 'GILD', 
-        'EXEL', 'MLTX', 'ADMA', 'LQDA', 'HRMY'
+        'EXEL', 'MLTX', 'ADMA', 'HRMY'
       ]
     },
     momentum: {

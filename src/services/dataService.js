@@ -1,8 +1,8 @@
 // services/dataService.js
 class DataService {
     constructor() {
-      this.baseUrl = 'http://localhost:3001';
-      this.wsUrl = 'ws://localhost:8081';
+      this.baseUrl = 'https://breakouts-production.up.railway.app';
+      this.wsUrl = 'wss://breakouts-production.up.railway.app';
       this.ws = null;
     }
   
