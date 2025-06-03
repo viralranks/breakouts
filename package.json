@@ -1,0 +1,30 @@
+{
+  "name": "vite-template-solid",
+  "version": "0.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "concurrently \"npm run server\" \"npm run dev:client\"",
+    "dev:client": "vite",
+    "server": "node server.js",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vite-plugin-solid": "^2.11.6"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.15.3",
+    "concurrently": "^9.1.2",
+    "cors": "^2.8.5",
+    "d3": "^7.9.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "node-fetch": "^3.3.2",
+    "solid-js": "^1.9.5",
+    "ws": "^8.18.2"
+  }
+}
