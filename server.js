@@ -39,6 +39,17 @@ app.use(express.json());
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
 const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
 
+// Determine if using paper or live trading based on environment
+const IS_PAPER = process.env.ALPACA_PAPER_TRADING === 'true';
+const IS_DEVELOPMENT = process.env.NODE_ENV !== 'production' && !process.env.RAILWAY_ENVIRONMENT;
+
+console.log('Environment:', {
+  IS_PAPER,
+  IS_DEVELOPMENT,
+  NODE_ENV: process.env.NODE_ENV,
+  RAILWAY_ENV: process.env.RAILWAY_ENVIRONMENT
+});
+
 // Debug: Check if credentials are loaded
 console.log('Alpaca credentials check:', {
   hasApiKey: !!ALPACA_API_KEY,
@@ -48,9 +59,27 @@ console.log('Alpaca credentials check:', {
   apiKeyPrefix: ALPACA_API_KEY?.substring(0, 4) + '...' || 'missing'
 });
 
-// Since you have a paid subscription, use live trading endpoints
-const ALPACA_DATA_URL = 'https://data.alpaca.markets/v2';
-const ALPACA_STREAM_URL = 'wss://stream.data.alpaca.markets/v2/sip';
+// API URLs - Paper vs Live
+const ALPACA_BASE_URL = IS_PAPER
+  ? 'https://paper-api.alpaca.markets'
+  : 'https://api.alpaca.markets';
+
+const ALPACA_DATA_URL = 'https://data.alpaca.markets/v2';  // Same for both paper and live
+
+// Stream URL - Use IEX for paper (free), SIP for live (paid)
+const ALPACA_STREAM_URL = IS_PAPER
+  ? 'wss://stream.data.alpaca.markets/v2/iex'  // IEX free feed for paper
+  : 'wss://stream.data.alpaca.markets/v2/sip'; // SIP paid feed for live
+
+// Data feed type
+const DATA_FEED = IS_PAPER ? 'iex' : 'sip';
+
+console.log('Alpaca Configuration:', {
+  BASE_URL: ALPACA_BASE_URL,
+  DATA_URL: ALPACA_DATA_URL,
+  STREAM_URL: ALPACA_STREAM_URL,
+  DATA_FEED: DATA_FEED
+});
 
 // ========== DATA HUB ==========
 class MarketDataHub {
@@ -72,11 +101,12 @@ class MarketDataHub {
 
   initializeAlpacaConnection() {
     console.log('Initializing Alpaca WebSocket connection...');
+    console.log(`Using ${IS_PAPER ? 'PAPER' : 'LIVE'} account with ${DATA_FEED} feed`);
     
     this.alpacaWs = new WebSocket(ALPACA_STREAM_URL);
     
     this.alpacaWs.on('open', () => {
-      console.log('Connected to Alpaca WebSocket (SIP feed)');
+      console.log(`Connected to Alpaca WebSocket (${DATA_FEED} feed)`);
       this.reconnectAttempts = 0;
       
       // Authenticate - exact format that works with Alpaca
@@ -217,10 +247,11 @@ class MarketDataHub {
         const lastTrade = this.lastTradeTime.get(symbol) || 0;
         const timeSinceLastTrade = Date.now() - lastTrade;
         
-        // If no trade in last 10 seconds, fetch via REST
-        if (timeSinceLastTrade > 10000) {
+        // If no trade in last 10 seconds (30 seconds for IEX), fetch via REST
+        const threshold = DATA_FEED === 'iex' ? 30000 : 10000;
+        if (timeSinceLastTrade > threshold) {
           try {
-            const url = `${ALPACA_DATA_URL}/stocks/${symbol}/trades/latest?feed=sip`;
+            const url = `${ALPACA_DATA_URL}/stocks/${symbol}/trades/latest?feed=${DATA_FEED}`;
             const response = await fetch(url, {
               headers: {
                 'APCA-API-KEY-ID': ALPACA_API_KEY,
@@ -459,7 +490,7 @@ app.get('/api/alpaca/:symbol/daily', async (req, res) => {
       timeframe: '1Day',
       limit: '1000',
       adjustment: 'raw',
-      feed: 'sip'  // SIP feed for paid subscription
+      feed: DATA_FEED  // Use appropriate feed based on paper/live
     });
 
     const response = await fetch(url, {
@@ -505,7 +536,7 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
       timeframe: '1Min',  // Changed from 5Min to 1Min to match Python
       limit: '1000',
       adjustment: 'raw',
-      feed: 'sip'  // SIP feed for paid subscription
+      feed: DATA_FEED  // Use appropriate feed based on paper/live
     });
 
     const response = await fetch(url, {
@@ -558,7 +589,7 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
 app.get('/api/alpaca/:symbol/latest', async (req, res) => {
   try {
     const { symbol } = req.params;
-    const url = `${ALPACA_DATA_URL}/stocks/${symbol}/trades/latest?feed=sip`;
+    const url = `${ALPACA_DATA_URL}/stocks/${symbol}/trades/latest?feed=${DATA_FEED}`;
     
     const response = await fetch(url, {
       headers: {
@@ -591,13 +622,15 @@ app.get('/api/test', async (req, res) => {
     console.log('Testing Alpaca connection...');
     console.log('API Key exists:', !!ALPACA_API_KEY);
     console.log('Secret Key exists:', !!ALPACA_SECRET_KEY);
+    console.log('Using feed:', DATA_FEED);
     
+    // Test basic API access
     const testUrl = `${ALPACA_DATA_URL}/stocks/AAPL/bars?` + new URLSearchParams({
       start: '2025-01-02T00:00:00Z',
       end: '2025-01-03T00:00:00Z',
       timeframe: '1Day',
       limit: '10',
-      feed: 'sip'
+      feed: DATA_FEED
     });
 
     const response = await fetch(testUrl, {
@@ -609,20 +642,138 @@ app.get('/api/test', async (req, res) => {
 
     const responseText = await response.text();
     console.log('Alpaca response status:', response.status);
-    console.log('Alpaca response:', responseText);
+    
+    // Also check account status
+    const accountUrl = `${ALPACA_BASE_URL}/v2/account`;
+    const accountResponse = await fetch(accountUrl, {
+      headers: {
+        'APCA-API-KEY-ID': ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY
+      }
+    });
+    
+    const accountData = await accountResponse.json();
 
     res.json({
+      environment: IS_PAPER ? 'PAPER' : 'LIVE',
+      feed: DATA_FEED,
       status: response.status,
-      headers: Object.fromEntries(response.headers.entries()),
-      body: responseText,
       apiKeyExists: !!ALPACA_API_KEY,
-      secretKeyExists: !!ALPACA_SECRET_KEY
+      secretKeyExists: !!ALPACA_SECRET_KEY,
+      accountStatus: accountResponse.status,
+      accountData: accountData,
+      testResponse: JSON.parse(responseText)
     });
   } catch (error) {
     console.error('Test endpoint error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+// Batch endpoint for loading multiple stocks efficiently
+app.get('/api/alpaca/batch/:symbols', async (req, res) => {
+  try {
+    const symbols = req.params.symbols.split(',').slice(0, 10); // Max 10 at once
+    const results = {};
+    
+    // Fetch data in parallel but with limited concurrency
+    await Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const [daily, intraday] = await Promise.all([
+            fetchDailyData(symbol),
+            fetchIntradayData(symbol)
+          ]);
+          results[symbol] = { daily, intraday };
+        } catch (error) {
+          results[symbol] = { error: error.message };
+        }
+      })
+    );
+    
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper functions
+async function fetchDailyData(symbol) {
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 30);
+  
+  const url = `${ALPACA_DATA_URL}/stocks/${symbol}/bars?` + new URLSearchParams({
+    start: startDate.toISOString(),
+    end: endDate.toISOString(),
+    timeframe: '1Day',
+    limit: '30',
+    adjustment: 'raw',
+    feed: DATA_FEED
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'APCA-API-KEY-ID': ALPACA_API_KEY,
+      'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY
+    }
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  
+  const data = await response.json();
+  return (data.bars || []).map(bar => ({
+    x: new Date(bar.t),
+    o: bar.o,
+    h: bar.h,
+    l: bar.l,
+    c: bar.c,
+    volume: bar.v
+  }));
+}
+
+async function fetchIntradayData(symbol) {
+  const startTime = getMarketOpen();
+  const endTime = new Date().toISOString();
+  
+  const url = `${ALPACA_DATA_URL}/stocks/${symbol}/bars?` + new URLSearchParams({
+    start: startTime,
+    end: endTime,
+    timeframe: '5Min',  // Use 5-min bars to reduce data
+    limit: '78',
+    adjustment: 'raw',
+    feed: DATA_FEED
+  });
+
+  const response = await fetch(url, {
+    headers: {
+      'APCA-API-KEY-ID': ALPACA_API_KEY,
+      'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY
+    }
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  
+  const data = await response.json();
+  return (data.bars || [])
+    .filter(bar => {
+      const barTime = new Date(bar.t);
+      const etTimeStr = barTime.toLocaleString("en-US", { timeZone: "America/New_York" });
+      const etTime = new Date(etTimeStr);
+      const hours = etTime.getHours();
+      const minutes = etTime.getMinutes();
+      const timeInMinutes = hours * 60 + minutes;
+      return timeInMinutes >= 570 && timeInMinutes <= 960;
+    })
+    .map(bar => ({
+      x: new Date(bar.t),
+      o: bar.o,
+      h: bar.h,
+      l: bar.l,
+      c: bar.c,
+      volume: bar.v
+    }));
+}
 
 // ========== SERVER SETUP ==========
 if (process.env.RAILWAY_ENVIRONMENT) {

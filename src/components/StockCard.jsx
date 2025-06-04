@@ -69,10 +69,13 @@ export function StockCard(props) {
   // Get live indicator text
   const getLiveText = () => {
     const source = liveSource();
+    // Check if we're in development/paper mode
+    const isPaper = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
     switch(source) {
       case 'trade': return 'LIVE';
       case 'quote': return 'QUOTES';
-      case 'rest': return 'DELAYED';
+      case 'rest': return isPaper ? 'IEX' : 'DELAYED';
       case 'cached': return 'CACHED';
       default: return 'LIVE';
     }
