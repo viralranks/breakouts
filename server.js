@@ -14,9 +14,11 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: function(origin, callback) {
     const allowedOrigins = [
-      'http://localhost:3000',  // Your local frontend
-      'http://localhost:5173',  // Vite dev server (if using)
-      'https://your-app.vercel.app',  // Your Vercel frontend - REPLACE WITH YOUR ACTUAL VERCEL URL
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'https://breakoutcharts.com',        // Add this
+      'https://www.breakoutcharts.com',    // Add this
+      'https://breakouts.vercel.app',      // Your Vercel subdomain if you have one
     ];
     
     // Allow requests with no origin (like mobile apps or Postman)
