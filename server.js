@@ -790,8 +790,19 @@ async function fetchIntradayData(symbol) {
 // Serve the built frontend files
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// Handle client-side routing - serve index.html for all non-API routes
-app.get('*', (req, res) => {
+// Handle client-side routing - serve index.html ONLY for non-API and non-asset routes
+app.get('*', (req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api')) {
+    return next();
+  }
+  
+  // Skip file requests (assets)
+  if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$/)) {
+    return next();
+  }
+  
+  // For everything else, serve the index.html (client-side routing)
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
