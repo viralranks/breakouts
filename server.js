@@ -4,6 +4,12 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer } from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -20,6 +26,11 @@ app.use(cors({
       'https://www.breakoutcharts.com',
       'https://breakouts.vercel.app',
     ];
+    
+    // Add Railway production URL when available
+    if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+      allowedOrigins.push(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
+    }
     
     // Allow requests with no origin (like mobile apps or Postman)
     if (!origin) return callback(null, true);
@@ -775,6 +786,15 @@ async function fetchIntradayData(symbol) {
     }));
 }
 
+// ========== SERVE STATIC FILES ==========
+// Serve the built frontend files
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Handle client-side routing - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 // ========== SERVER SETUP ==========
 if (process.env.RAILWAY_ENVIRONMENT) {
   // Production on Railway: HTTP and WebSocket on same port
@@ -819,6 +839,7 @@ if (process.env.RAILWAY_ENVIRONMENT) {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT} with integrated WebSocket support`);
     console.log('Market Data Hub initialized with single Alpaca connection');
+    console.log(`Public URL: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'pending...'}`);
   });
 } else {
   // Development: Separate ports for HTTP and WebSocket

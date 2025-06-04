@@ -4,12 +4,14 @@
   "description": "",
   "type": "module",
   "scripts": {
-    "start": "vite",
+    "start": "node server.js",
     "dev": "concurrently \"npm run server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "server": "node server.js",
     "build": "vite build",
-    "serve": "vite preview"
+    "build:all": "npm run build",
+    "serve": "vite preview",
+    "postinstall": "npm run build"
   },
   "license": "MIT",
   "devDependencies": {
@@ -26,5 +28,8 @@
     "node-fetch": "^3.3.2",
     "solid-js": "^1.9.5",
     "ws": "^8.18.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

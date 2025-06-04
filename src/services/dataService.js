@@ -5,14 +5,18 @@ class DataService {
     const isDevelopment = window.location.hostname === 'localhost' || 
                          window.location.hostname === '127.0.0.1';
     
-    // Set URLs based on environment
-    this.baseUrl = isDevelopment 
-      ? 'http://localhost:3001' 
-      : 'https://breakouts-production.up.railway.app';
-    
-    this.wsUrl = isDevelopment
-      ? 'ws://localhost:8081'
-      : 'wss://breakouts-production.up.railway.app';
+    // In production, when served from the same domain, we can use relative URLs
+    // This automatically uses the correct protocol and domain
+    if (!isDevelopment) {
+      // Use the current origin for production
+      this.baseUrl = window.location.origin;
+      // WebSocket URL uses wss:// for https:// origins
+      this.wsUrl = window.location.origin.replace(/^http/, 'ws');
+    } else {
+      // Development URLs
+      this.baseUrl = 'http://localhost:3001';
+      this.wsUrl = 'ws://localhost:8081';
+    }
     
     this.ws = null;
     this.reconnectTimeout = null;
@@ -26,7 +30,9 @@ class DataService {
     console.log('DataService initialized:', {
       environment: isDevelopment ? 'development' : 'production',
       baseUrl: this.baseUrl,
-      wsUrl: this.wsUrl
+      wsUrl: this.wsUrl,
+      hostname: window.location.hostname,
+      origin: window.location.origin
     });
   }
 
