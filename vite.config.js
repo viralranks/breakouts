@@ -8,8 +8,7 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    // Optimize for production
-    minify: 'terser',
+    // Use default minification (esbuild)
     sourcemap: false,
     // Improve chunking for better caching
     rollupOptions: {
