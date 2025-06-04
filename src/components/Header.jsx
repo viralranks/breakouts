@@ -28,7 +28,7 @@ export function Header() {
           </div>
           <nav class="header-nav">
             <A href="/about" class="nav-link">
-              About The Service
+              About Us
             </A>
           </nav>
         </div>
