@@ -10,7 +10,27 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// Updated CORS configuration to fix the errors
+app.use(cors({
+  origin: function(origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:3000',  // Your local frontend
+      'http://localhost:5173',  // Vite dev server (if using)
+      'https://your-app.vercel.app',  // Your Vercel frontend - REPLACE WITH YOUR ACTUAL VERCEL URL
+    ];
+    
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Alpaca Configuration
@@ -337,6 +357,45 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
 
     res.json({ data: chartData });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint to test Alpaca connection
+app.get('/api/test', async (req, res) => {
+  try {
+    console.log('Testing Alpaca connection...');
+    console.log('API Key exists:', !!ALPACA_API_KEY);
+    console.log('Secret Key exists:', !!ALPACA_SECRET_KEY);
+    
+    const testUrl = `${ALPACA_DATA_URL}/stocks/AAPL/bars?` + new URLSearchParams({
+      start: '2025-06-02T00:00:00Z',
+      end: '2025-06-03T00:00:00Z',
+      timeframe: '1Day',
+      limit: '10',
+      feed: 'iex'
+    });
+
+    const response = await fetch(testUrl, {
+      headers: {
+        'APCA-API-KEY-ID': ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY
+      }
+    });
+
+    const responseText = await response.text();
+    console.log('Alpaca response status:', response.status);
+    console.log('Alpaca response:', responseText);
+
+    res.json({
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body: responseText,
+      apiKeyExists: !!ALPACA_API_KEY,
+      secretKeyExists: !!ALPACA_SECRET_KEY
+    });
+  } catch (error) {
+    console.error('Test endpoint error:', error);
     res.status(500).json({ error: error.message });
   }
 });
