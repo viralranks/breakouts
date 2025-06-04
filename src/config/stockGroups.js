@@ -5,7 +5,8 @@ const GOOGLE_SHEET_ID = '1AsKs4JO0Js0Vhhp433gwEyh5M-Ssa1XSgDLQY2haqX4';
 
 // GIDs for each sheet tab
 const SHEET_GIDS = {
-  techLarge: '0',              // Tech Large Caps (first sheet)
+  magnificent7: '1465004285',   // Magnificent 7 (first/default)
+  techLarge: '0',              // Tech Large Caps
   techSmall: '28772249',       // Tech Small Caps
   biotech: '1870652281',       // Biotech Stocks
   momentum: '1903963547'       // Momentum Stocks
@@ -13,6 +14,11 @@ const SHEET_GIDS = {
 
 // Static group metadata
 const STOCK_GROUP_METADATA = {
+  magnificent7: {
+    id: 'magnificent7',
+    name: 'Magnificent 7',
+    description: 'The seven largest tech companies by market cap'
+  },
   techLarge: {
     id: 'techLarge',
     name: 'Tech Large Caps',
@@ -84,6 +90,7 @@ async function fetchSheetAsCSV(gid) {
 
 // Fallback data in case Google Sheets is unavailable
 const FALLBACK_DATA = {
+  magnificent7: ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA'],
   techLarge: ['NVDA', 'AAPL', 'TSLA', 'META', 'GOOGL', 'MSFT'],
   techSmall: ['PLTR', 'NVTS', 'BBAI'],
   biotech: ['BIIB', 'ILMN', 'AMGN'],
@@ -178,6 +185,10 @@ export const STOCK_GROUPS = new Proxy({}, {
   get: (target, prop) => {
     // Always return a valid structure
     const groups = STOCK_GROUPS_CACHE || {
+      magnificent7: {
+        ...STOCK_GROUP_METADATA.magnificent7,
+        tickers: FALLBACK_DATA.magnificent7 || []
+      },
       techLarge: {
         ...STOCK_GROUP_METADATA.techLarge,
         tickers: FALLBACK_DATA.techLarge || []

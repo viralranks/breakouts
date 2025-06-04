@@ -38,8 +38,18 @@ app.use(express.json());
 // Alpaca Configuration
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
 const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
-const ALPACA_DATA_URL = 'https://data.alpaca.markets/v2';
-const ALPACA_STREAM_URL = 'wss://stream.data.alpaca.markets/v2/iex';
+
+// Determine if using paper or live trading based on environment variable
+const IS_PAPER = process.env.ALPACA_PAPER_TRADING === 'true';
+
+// API URLs - Paper vs Live
+const ALPACA_DATA_URL = IS_PAPER 
+  ? 'https://data.alpaca.markets/v2'  // Paper trading URL
+  : 'https://data.alpaca.markets/v2'; // Live trading data URL (same for both)
+
+// Note: The data endpoint is the same for both paper and live
+// The streaming URL is now using SIP for full market coverage
+const ALPACA_STREAM_URL = 'wss://stream.data.alpaca.markets/v2/sip';
 
 // ========== DATA HUB ==========
 class MarketDataHub {
@@ -286,7 +296,7 @@ app.get('/api/alpaca/:symbol/daily', async (req, res) => {
       timeframe: '1Day',
       limit: '1000',
       adjustment: 'raw',
-      feed: 'iex'
+      feed: 'sip'  // Changed from 'iex' to 'sip'
     });
 
     const response = await fetch(url, {
@@ -317,7 +327,7 @@ app.get('/api/alpaca/:symbol/daily', async (req, res) => {
   }
 });
 
-// Intraday bars endpoint
+// Intraday bars endpoint - UPDATED TO FILTER MARKET HOURS ONLY
 app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
   try {
     const { symbol } = req.params;
@@ -332,7 +342,7 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
       timeframe: '5Min',
       limit: '1000',
       adjustment: 'raw',
-      feed: 'iex'
+      feed: 'sip'  // Changed from 'iex' to 'sip'
     });
 
     const response = await fetch(url, {
@@ -348,7 +358,24 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
     }
 
     const data = await response.json();
-    const chartData = (data.bars || []).map(bar => ({
+    
+    // Filter bars to only include regular market hours (9:30 AM - 4:00 PM ET)
+    const marketData = (data.bars || []).filter(bar => {
+      const barTime = new Date(bar.t);
+      
+      // Convert to ET timezone for comparison
+      const etTimeStr = barTime.toLocaleString("en-US", { timeZone: "America/New_York" });
+      const etTime = new Date(etTimeStr);
+      const hours = etTime.getHours();
+      const minutes = etTime.getMinutes();
+      const timeInMinutes = hours * 60 + minutes;
+      
+      // Market hours: 9:30 AM (570 minutes) to 4:00 PM (960 minutes) ET
+      // Include bars from 9:30 to 16:00 (4:00 PM)
+      return timeInMinutes >= 570 && timeInMinutes <= 960;
+    });
+    
+    const chartData = marketData.map(bar => ({
       x: new Date(bar.t),
       o: bar.o,
       h: bar.h,
@@ -356,6 +383,8 @@ app.get('/api/alpaca/:symbol/intraday', async (req, res) => {
       c: bar.c,
       volume: bar.v
     }));
+
+    console.log(`Filtered ${data.bars?.length || 0} bars to ${chartData.length} market hours bars for ${symbol}`);
 
     res.json({ data: chartData });
   } catch (error) {
@@ -375,7 +404,7 @@ app.get('/api/test', async (req, res) => {
       end: '2025-06-03T00:00:00Z',
       timeframe: '1Day',
       limit: '10',
-      feed: 'iex'
+      feed: 'sip'  // Changed from 'iex' to 'sip'
     });
 
     const response = await fetch(testUrl, {

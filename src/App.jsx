@@ -6,7 +6,7 @@ import { CategoryTabs } from './components/CategoryTabs';
 import { STOCK_GROUPS } from './config/stockGroups';
 
 const App = () => {
-  const [currentPackage, setCurrentPackage] = createSignal('techLarge');
+  const [currentPackage, setCurrentPackage] = createSignal('magnificent7');
   
   createEffect(() => {
     const group = STOCK_GROUPS[currentPackage()];

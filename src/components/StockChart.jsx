@@ -4,9 +4,17 @@ import * as d3 from 'd3';
 export const StockChart = (props) => {
   let chartDiv;
   let tooltipRef = null;
+  let resizeObserver = null;
 
   const renderChart = () => {
     if (!chartDiv) return;
+    
+    // Check if container has dimensions
+    const rect = chartDiv.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      console.log(`Container not ready for ${props.ticker} ${props.type} chart`);
+      return;
+    }
     
     // Wait for data to be available
     if (!props.data || props.data.length === 0) {
@@ -410,9 +418,29 @@ export const StockChart = (props) => {
     });
   };
 
-  // Initial render
+  // Use ResizeObserver to detect when container becomes visible
   onMount(() => {
-    renderChart();
+    if (chartDiv) {
+      // Create ResizeObserver to detect when container gets dimensions
+      resizeObserver = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            // Container is visible, render chart
+            requestAnimationFrame(() => {
+              renderChart();
+            });
+          }
+        }
+      });
+      
+      resizeObserver.observe(chartDiv);
+      
+      // Also try rendering after a small delay as fallback
+      setTimeout(() => {
+        renderChart();
+      }, 100);
+    }
   });
   
   // Re-render when data changes
@@ -421,14 +449,19 @@ export const StockChart = (props) => {
     const data = props.data;
     if (data && data.length > 0) {
       console.log(`Data updated for ${props.ticker} ${props.type}, re-rendering chart`);
-      renderChart();
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        renderChart();
+      });
     }
   });
 
   // Handle resize
   const handleResize = () => {
     if (chartDiv && props.data && props.data.length > 0) {
-      renderChart();
+      requestAnimationFrame(() => {
+        renderChart();
+      });
     }
   };
 
@@ -439,6 +472,9 @@ export const StockChart = (props) => {
   // Cleanup
   onCleanup(() => {
     window.removeEventListener('resize', handleResize);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
     d3.select(chartDiv).selectAll("*").remove();
     if (tooltipRef) {
       tooltipRef.remove();
