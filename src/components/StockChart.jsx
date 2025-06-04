@@ -30,7 +30,7 @@ export const StockChart = (props) => {
     }
 
     // Dimensions and margins
-    const margin = { top: 10, right: 50, bottom: 30, left: 50 };
+    const margin = { top: 10, right: 60, bottom: 30, left: 50 };
     const width = chartDiv.clientWidth - margin.left - margin.right;
     const height = 400 - margin.top - margin.bottom;
 
@@ -67,10 +67,19 @@ export const StockChart = (props) => {
     // Calculate Y scale domain with padding
     const yMin = d3.min(data, d => d.l);
     const yMax = d3.max(data, d => d.h);
-    const yPadding = (yMax - yMin) * 0.1;
+    
+    // Include current price in Y scale if provided
+    let adjustedYMin = yMin;
+    let adjustedYMax = yMax;
+    if (props.currentPrice) {
+      adjustedYMin = Math.min(yMin, props.currentPrice);
+      adjustedYMax = Math.max(yMax, props.currentPrice);
+    }
+    
+    const yPadding = (adjustedYMax - adjustedYMin) * 0.1;
     
     const yScale = d3.scaleLinear()
-      .domain([yMin - yPadding, yMax + yPadding])
+      .domain([adjustedYMin - yPadding, adjustedYMax + yPadding])
       .range([height, 0]);
 
     // Volume scale (bottom 20% of chart)
@@ -113,9 +122,29 @@ export const StockChart = (props) => {
         .tickValues(xScale.domain().filter((d, i) => i % 7 === 0))
         .tickFormat(d => d3.timeFormat('%b %d')(d));
     } else {
-      // For intraday charts, use time-based ticks
+      // For intraday charts, show time based on data density
+      const dataCount = data.length;
+      let tickInterval;
+      
+      if (dataCount <= 60) {
+        // Less than 1 hour of data: show every 15 minutes
+        tickInterval = 15;
+      } else if (dataCount <= 195) {
+        // Less than 3.25 hours: show every 30 minutes
+        tickInterval = 30;
+      } else {
+        // Full day: show every hour
+        tickInterval = 60;
+      }
+      
       xAxis = d3.axisBottom(xScale)
-        .ticks(d3.timeHour.every(1))
+        .tickValues(data
+          .filter((d, i) => {
+            const minutes = d.x.getMinutes();
+            return minutes % tickInterval === 0;
+          })
+          .map(d => d.x)
+        )
         .tickFormat(d => {
           const easternTime = new Date(d.toLocaleString("en-US", {timeZone: "America/New_York"}));
           return d3.timeFormat('%H:%M')(easternTime);
@@ -145,7 +174,9 @@ export const StockChart = (props) => {
     if (props.type === 'daily') {
       barWidth = xScale.bandwidth() * 0.8; // Use 80% of bandwidth for daily charts
     } else {
-      barWidth = Math.max(1, Math.min(20, (width / data.length) * 0.7));
+      // For 1-minute intraday data
+      const pixelsPerBar = width / data.length;
+      barWidth = Math.max(1, Math.min(10, pixelsPerBar * 0.7));
     }
 
     // Volume bars first (so they appear behind candlesticks)
@@ -235,17 +266,59 @@ export const StockChart = (props) => {
       })
       .attr('stroke-width', 1);
 
-    // Highlight the last candle if it's recent (within last minute)
+    // Current price line (if provided)
+    if (props.currentPrice) {
+      const priceY = yScale(props.currentPrice);
+      
+      // Price line
+      g.append('line')
+        .attr('class', 'current-price-line')
+        .attr('x1', 0)
+        .attr('x2', width)
+        .attr('y1', priceY)
+        .attr('y2', priceY)
+        .attr('stroke', '#ffaa00')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '5,3')
+        .style('opacity', 0.8);
+      
+      // Price label background
+      const priceText = `$${props.currentPrice.toFixed(2)}`;
+      const textWidth = priceText.length * 7 + 10;
+      
+      g.append('rect')
+        .attr('class', 'current-price-label-bg')
+        .attr('x', width + 2)
+        .attr('y', priceY - 10)
+        .attr('width', textWidth)
+        .attr('height', 20)
+        .attr('fill', '#ffaa00')
+        .attr('rx', 2);
+      
+      // Price label text
+      g.append('text')
+        .attr('class', 'current-price-label')
+        .attr('x', width + 5)
+        .attr('y', priceY + 4)
+        .text(priceText)
+        .attr('fill', '#000')
+        .style('font-size', '12px')
+        .style('font-weight', 'bold');
+    }
+
+    // Highlight the last candle if it's recent (within last minute for intraday)
     const lastCandle = data[data.length - 1];
     const now = new Date();
     const timeDiff = now - lastCandle.x;
-    const isRecent = timeDiff < 60000; // Within last minute
+    const isRecent = props.type === 'intraday' ? timeDiff < 120000 : timeDiff < 86400000; // 2 minutes for intraday, 1 day for daily
 
-    if (isRecent && props.type === 'intraday') {
+    if (isRecent) {
       // Add pulsing effect to last candle
       g.append('rect')
         .attr('class', 'last-candle-highlight')
-        .attr('x', xScale(lastCandle.x) - barWidth / 2 - 2)
+        .attr('x', props.type === 'daily' 
+          ? xScale(lastCandle.x) + (xScale.bandwidth() - barWidth) / 2 - 2
+          : xScale(lastCandle.x) - barWidth / 2 - 2)
         .attr('y', yScale(Math.max(lastCandle.o, lastCandle.c)) - 2)
         .attr('width', barWidth + 4)
         .attr('height', Math.abs(yScale(lastCandle.o) - yScale(lastCandle.c)) + 4)
@@ -295,11 +368,9 @@ export const StockChart = (props) => {
       .attr('class', 'hover-rect')
       .attr('x', (d, i) => {
         if (props.type === 'daily') {
-          // For band scale, use the band position
-          if (i === 0) return 0;
-          return xScale(data[i - 1].x);
+          return xScale(d.x);
         } else {
-          // For time scale, use the midpoint calculation
+          // For time scale with 1-minute bars
           if (i === 0) return 0;
           const prevX = xScale(data[i - 1].x);
           const currX = xScale(d.x);
@@ -309,20 +380,16 @@ export const StockChart = (props) => {
       .attr('y', 0)
       .attr('width', (d, i) => {
         if (props.type === 'daily') {
-          // For band scale, use bandwidth
           return xScale.bandwidth();
         } else {
-          // For time scale, calculate width
-          if (i === 0 && data.length > 1) {
-            return (xScale(data[1].x) - xScale(d.x)) / 2;
-          } else if (i === data.length - 1 && data.length > 1) {
-            return (xScale(d.x) - xScale(data[i - 1].x)) / 2;
-          } else if (data.length > 1) {
-            const nextX = i < data.length - 1 ? xScale(data[i + 1].x) : xScale(d.x);
-            const prevX = i > 0 ? xScale(data[i - 1].x) : xScale(d.x);
-            return (nextX - prevX) / 2;
+          // For 1-minute bars
+          if (i === data.length - 1) {
+            return width - xScale(d.x);
+          } else {
+            const nextX = xScale(data[i + 1].x);
+            const currX = xScale(d.x);
+            return nextX - currX;
           }
-          return width;
         }
       })
       .attr('height', height)
@@ -357,12 +424,12 @@ export const StockChart = (props) => {
         tooltip.html(`
           <div style="font-weight: bold; margin-bottom: 4px">${formatDate(d.x)}</div>
           <div style="display: grid; grid-template-columns: auto auto; gap: 4px 12px;">
-            <div style="color: #888;">Open:</div><div style="text-align: right;">${d.o.toFixed(2)}</div>
-            <div style="color: #888;">High:</div><div style="text-align: right;">${d.h.toFixed(2)}</div>
-            <div style="color: #888;">Low:</div><div style="text-align: right;">${d.l.toFixed(2)}</div>
-            <div style="color: #888;">Close:</div><div style="text-align: right;">${d.c.toFixed(2)}</div>
+            <div style="color: #888;">Open:</div><div style="text-align: right;">$${d.o.toFixed(2)}</div>
+            <div style="color: #888;">High:</div><div style="text-align: right;">$${d.h.toFixed(2)}</div>
+            <div style="color: #888;">Low:</div><div style="text-align: right;">$${d.l.toFixed(2)}</div>
+            <div style="color: #888;">Close:</div><div style="text-align: right;">$${d.c.toFixed(2)}</div>
             <div style="color: #888;">Change:</div><div style="text-align: right; color: ${changeColor}">${changeAmount >= 0 ? '+' : ''}${changeAmount.toFixed(2)} (${changeAmount >= 0 ? '+' : ''}${changePercent}%)</div>
-            <div style="color: #888;">Volume:</div><div style="text-align: right;">${(d.volume / 1000000).toFixed(2)}M</div>
+            <div style="color: #888;">Volume:</div><div style="text-align: right;">${d.volume >= 1000000 ? `${(d.volume / 1000000).toFixed(2)}M` : d.volume >= 1000 ? `${(d.volume / 1000).toFixed(0)}K` : d.volume}</div>
           </div>
         `)
           .style('left', (event.pageX + 10) + 'px')
@@ -443,12 +510,14 @@ export const StockChart = (props) => {
     }
   });
   
-  // Re-render when data changes
+  // Re-render when data or currentPrice changes
   createEffect(() => {
-    // Access props.data to track changes
+    // Access props to track changes
     const data = props.data;
+    const currentPrice = props.currentPrice;
+    
     if (data && data.length > 0) {
-      console.log(`Data updated for ${props.ticker} ${props.type}, re-rendering chart`);
+      console.log(`Data/price updated for ${props.ticker} ${props.type}, re-rendering chart`);
       // Use requestAnimationFrame to ensure DOM is ready
       requestAnimationFrame(() => {
         renderChart();
