@@ -2,6 +2,28 @@
 import { createSignal } from 'solid-js';
 import { dataService } from '../services/dataService';
 
+// Throttle utility function
+const throttle = (func, delay) => {
+  let lastCall = 0;
+  let timeout;
+  
+  return (...args) => {
+    const now = Date.now();
+    const timeSinceLastCall = now - lastCall;
+    
+    if (timeSinceLastCall >= delay) {
+      lastCall = now;
+      func(...args);
+    } else {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        lastCall = Date.now();
+        func(...args);
+      }, delay - timeSinceLastCall);
+    }
+  };
+};
+
 function createStockStore() {
   const [data, setData] = createSignal({});
   const [loading, setLoading] = createSignal(false);
@@ -29,6 +51,113 @@ function createStockStore() {
     setErrors(newErrors);
     setLoading(false);
   };
+
+  // Update today's daily candle with real-time trades
+  const updateDailyCandle = (symbol, price, size, timestamp) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    setData(prev => {
+      const current = { ...prev };
+      if (!current[symbol]) return current;
+      
+      const daily = [...(current[symbol].daily || [])];
+      if (daily.length === 0) return current;
+      
+      const lastCandle = daily[daily.length - 1];
+      const lastCandleDate = new Date(lastCandle.x);
+      lastCandleDate.setHours(0, 0, 0, 0);
+      
+      // Check if the last candle is today's candle
+      if (lastCandleDate.getTime() === today.getTime()) {
+        // Update today's candle
+        daily[daily.length - 1] = {
+          ...lastCandle,
+          h: Math.max(lastCandle.h, price),
+          l: Math.min(lastCandle.l, price),
+          c: price,
+          volume: lastCandle.volume + size
+        };
+      } else if (timestamp.getTime() >= today.getTime()) {
+        // Create today's candle if it doesn't exist
+        daily.push({
+          x: today,
+          o: price,
+          h: price,
+          l: price,
+          c: price,
+          volume: size
+        });
+      }
+      
+      current[symbol] = {
+        ...current[symbol],
+        daily
+      };
+      
+      return current;
+    });
+  };
+
+  // Create throttled version of updateIntradayCandle
+  const updateIntradayCandle = throttle((symbol, price, size, timestamp) => {
+    // Round down to nearest minute
+    const currentBar = new Date(Math.floor(timestamp.getTime() / (60 * 1000)) * (60 * 1000));
+    
+    setData(prev => {
+      const current = { ...prev };
+      if (!current[symbol]) return current;
+      
+      const intraday = [...(current[symbol].intraday || [])];
+      if (intraday.length === 0) {
+        // Create first candle
+        intraday.push({
+          x: currentBar,
+          o: price,
+          h: price,
+          l: price,
+          c: price,
+          volume: size
+        });
+      } else {
+        const lastCandle = intraday[intraday.length - 1];
+        const lastCandleTime = new Date(lastCandle.x).getTime();
+        
+        if (lastCandleTime === currentBar.getTime()) {
+          // Update current candle
+          intraday[intraday.length - 1] = {
+            ...lastCandle,
+            h: Math.max(lastCandle.h, price),
+            l: Math.min(lastCandle.l, price),
+            c: price,
+            volume: lastCandle.volume + size
+          };
+        } else if (currentBar.getTime() > lastCandleTime) {
+          // Start a new candle
+          intraday.push({
+            x: currentBar,
+            o: price,
+            h: price,
+            l: price,
+            c: price,
+            volume: size
+          });
+          
+          // Keep only last 390 bars (1 trading day of 1-minute bars)
+          if (intraday.length > 390) {
+            intraday.shift();
+          }
+        }
+      }
+      
+      current[symbol] = {
+        ...current[symbol],
+        intraday
+      };
+      
+      return current;
+    });
+  }, 1000); // Throttle to once per second
 
   const connectWebSocket = (symbols) => {
     dataService.connectWebSocket(symbols, (update) => {
@@ -92,7 +221,7 @@ function createStockStore() {
         // Update today's daily candle
         updateDailyCandle(symbol, price, size, timestamp);
         
-        // Update current intraday candle
+        // Update current intraday candle (throttled)
         updateIntradayCandle(symbol, price, size, timestamp);
       } else if (update.type === 'quote') {
         // Handle quote updates (bid/ask)
@@ -149,113 +278,6 @@ function createStockStore() {
           });
         }
       }
-    });
-  };
-
-  // Update today's daily candle with real-time trades
-  const updateDailyCandle = (symbol, price, size, timestamp) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    setData(prev => {
-      const current = { ...prev };
-      if (!current[symbol]) return current;
-      
-      const daily = [...(current[symbol].daily || [])];
-      if (daily.length === 0) return current;
-      
-      const lastCandle = daily[daily.length - 1];
-      const lastCandleDate = new Date(lastCandle.x);
-      lastCandleDate.setHours(0, 0, 0, 0);
-      
-      // Check if the last candle is today's candle
-      if (lastCandleDate.getTime() === today.getTime()) {
-        // Update today's candle
-        daily[daily.length - 1] = {
-          ...lastCandle,
-          h: Math.max(lastCandle.h, price),
-          l: Math.min(lastCandle.l, price),
-          c: price,
-          volume: lastCandle.volume + size
-        };
-      } else if (timestamp.getTime() >= today.getTime()) {
-        // Create today's candle if it doesn't exist
-        daily.push({
-          x: today,
-          o: price,
-          h: price,
-          l: price,
-          c: price,
-          volume: size
-        });
-      }
-      
-      current[symbol] = {
-        ...current[symbol],
-        daily
-      };
-      
-      return current;
-    });
-  };
-
-  // Update current 1-minute candle with real-time trades
-  const updateIntradayCandle = (symbol, price, size, timestamp) => {
-    // Round down to nearest minute
-    const currentBar = new Date(Math.floor(timestamp.getTime() / (60 * 1000)) * (60 * 1000));
-    
-    setData(prev => {
-      const current = { ...prev };
-      if (!current[symbol]) return current;
-      
-      const intraday = [...(current[symbol].intraday || [])];
-      if (intraday.length === 0) {
-        // Create first candle
-        intraday.push({
-          x: currentBar,
-          o: price,
-          h: price,
-          l: price,
-          c: price,
-          volume: size
-        });
-      } else {
-        const lastCandle = intraday[intraday.length - 1];
-        const lastCandleTime = new Date(lastCandle.x).getTime();
-        
-        if (lastCandleTime === currentBar.getTime()) {
-          // Update current candle
-          intraday[intraday.length - 1] = {
-            ...lastCandle,
-            h: Math.max(lastCandle.h, price),
-            l: Math.min(lastCandle.l, price),
-            c: price,
-            volume: lastCandle.volume + size
-          };
-        } else if (currentBar.getTime() > lastCandleTime) {
-          // Start a new candle
-          intraday.push({
-            x: currentBar,
-            o: price,
-            h: price,
-            l: price,
-            c: price,
-            volume: size
-          });
-          
-          // Keep only last 390 bars (1 trading day of 1-minute bars)
-          if (intraday.length > 390) {
-            intraday.shift();
-          }
-        }
-      }
-      
-      current[symbol] = {
-        ...current[symbol],
-        intraday
-      };
-      
-      return current;
     });
   };
 
@@ -342,4 +364,5 @@ function createStockStore() {
   };
 }
 
+// IMPORTANT: This export must be here!
 export const stockStore = createStockStore();

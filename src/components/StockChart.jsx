@@ -5,6 +5,55 @@ export const StockChart = (props) => {
   let chartDiv;
   let tooltipRef = null;
   let resizeObserver = null;
+  let chartInstance = null;
+  let priceLineGroup = null;
+  let lastRenderedData = null;
+
+  // Separate function to update ONLY the current price line
+  const updatePriceLine = (price) => {
+    if (!chartInstance || !priceLineGroup || !price) return;
+
+    const { yScale, width, height } = chartInstance;
+    const priceY = yScale(price);
+    
+    // Remove existing price line elements
+    priceLineGroup.selectAll('*').remove();
+    
+    // Price line
+    priceLineGroup.append('line')
+      .attr('class', 'current-price-line')
+      .attr('x1', 0)
+      .attr('x2', width)
+      .attr('y1', priceY)
+      .attr('y2', priceY)
+      .attr('stroke', '#ffaa00')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '5,3')
+      .style('opacity', 0.8);
+    
+    // Price label background
+    const priceText = `$${price.toFixed(2)}`;
+    const textWidth = priceText.length * 7 + 10;
+    
+    priceLineGroup.append('rect')
+      .attr('class', 'current-price-label-bg')
+      .attr('x', width + 2)
+      .attr('y', priceY - 10)
+      .attr('width', textWidth)
+      .attr('height', 20)
+      .attr('fill', '#ffaa00')
+      .attr('rx', 2);
+    
+    // Price label text
+    priceLineGroup.append('text')
+      .attr('class', 'current-price-label')
+      .attr('x', width + 5)
+      .attr('y', priceY + 4)
+      .text(priceText)
+      .attr('fill', '#000')
+      .style('font-size', '12px')
+      .style('font-weight', 'bold');
+  };
 
   const renderChart = () => {
     if (!chartDiv) return;
@@ -22,12 +71,28 @@ export const StockChart = (props) => {
       return;
     }
 
+    // Check if data has actually changed
+    const dataString = JSON.stringify(props.data);
+    if (lastRenderedData === dataString) {
+      console.log(`Data unchanged for ${props.ticker} ${props.type}, skipping re-render`);
+      // Just update the price line if needed
+      if (props.currentPrice) {
+        updatePriceLine(props.currentPrice);
+      }
+      return;
+    }
+    lastRenderedData = dataString;
+
+    console.log(`Rendering ${props.ticker} ${props.type} chart with ${props.data.length} data points`);
+
     // Clear any existing chart and tooltip
     d3.select(chartDiv).selectAll("*").remove();
     if (tooltipRef) {
       tooltipRef.remove();
       tooltipRef = null;
     }
+    chartInstance = null;
+    priceLineGroup = null;
 
     // Dimensions and margins
     const margin = { top: 10, right: 60, bottom: 30, left: 50 };
@@ -81,6 +146,9 @@ export const StockChart = (props) => {
     const yScale = d3.scaleLinear()
       .domain([adjustedYMin - yPadding, adjustedYMax + yPadding])
       .range([height, 0]);
+
+    // Store chart instance data for price line updates
+    chartInstance = { yScale, width, height };
 
     // Volume scale (bottom 20% of chart)
     const volumeHeight = height * 0.2;
@@ -266,44 +334,12 @@ export const StockChart = (props) => {
       })
       .attr('stroke-width', 1);
 
-    // Current price line (if provided)
+    // Create a separate group for the price line that can be updated independently
+    priceLineGroup = g.append('g').attr('class', 'price-line-group');
+    
+    // Initial price line render
     if (props.currentPrice) {
-      const priceY = yScale(props.currentPrice);
-      
-      // Price line
-      g.append('line')
-        .attr('class', 'current-price-line')
-        .attr('x1', 0)
-        .attr('x2', width)
-        .attr('y1', priceY)
-        .attr('y2', priceY)
-        .attr('stroke', '#ffaa00')
-        .attr('stroke-width', 1.5)
-        .attr('stroke-dasharray', '5,3')
-        .style('opacity', 0.8);
-      
-      // Price label background
-      const priceText = `$${props.currentPrice.toFixed(2)}`;
-      const textWidth = priceText.length * 7 + 10;
-      
-      g.append('rect')
-        .attr('class', 'current-price-label-bg')
-        .attr('x', width + 2)
-        .attr('y', priceY - 10)
-        .attr('width', textWidth)
-        .attr('height', 20)
-        .attr('fill', '#ffaa00')
-        .attr('rx', 2);
-      
-      // Price label text
-      g.append('text')
-        .attr('class', 'current-price-label')
-        .attr('x', width + 5)
-        .attr('y', priceY + 4)
-        .text(priceText)
-        .attr('fill', '#000')
-        .style('font-size', '12px')
-        .style('font-weight', 'bold');
+      updatePriceLine(props.currentPrice);
     }
 
     // Highlight the last candle if it's recent (within last minute for intraday)
@@ -510,24 +546,35 @@ export const StockChart = (props) => {
     }
   });
   
-  // Re-render when data or currentPrice changes
+  // Separate effects for data changes and price updates
   createEffect(() => {
-    // Access props to track changes
+    // Track only data changes for full re-render
     const data = props.data;
-    const currentPrice = props.currentPrice;
     
     if (data && data.length > 0) {
-      console.log(`Data/price updated for ${props.ticker} ${props.type}, re-rendering chart`);
-      // Use requestAnimationFrame to ensure DOM is ready
+      console.log(`Data updated for ${props.ticker} ${props.type}, checking if re-render needed`);
       requestAnimationFrame(() => {
         renderChart();
       });
     }
   });
 
+  // Separate effect for price line updates only
+  createEffect(() => {
+    // Track only currentPrice changes
+    const currentPrice = props.currentPrice;
+    
+    if (currentPrice && chartInstance && priceLineGroup) {
+      console.log(`Price updated for ${props.ticker} ${props.type}: $${currentPrice.toFixed(2)}`);
+      updatePriceLine(currentPrice);
+    }
+  });
+
   // Handle resize
   const handleResize = () => {
     if (chartDiv && props.data && props.data.length > 0) {
+      // Reset lastRenderedData to force re-render on resize
+      lastRenderedData = null;
       requestAnimationFrame(() => {
         renderChart();
       });
@@ -549,6 +596,9 @@ export const StockChart = (props) => {
       tooltipRef.remove();
       tooltipRef = null;
     }
+    chartInstance = null;
+    priceLineGroup = null;
+    lastRenderedData = null;
   });
 
   return <div ref={chartDiv} style={{ width: '100%', height: '400px' }} />;
